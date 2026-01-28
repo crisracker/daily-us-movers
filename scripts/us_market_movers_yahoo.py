@@ -66,6 +66,16 @@ def save_alerted(alerted):
         json.dump(list(alerted), f)
 
 # =========================
+# Direction icon (🟢 🔴 ⚪)
+# =========================
+def direction_icon(pct):
+    if pct > 0:
+        return "🟢"
+    if pct < 0:
+        return "🔴"
+    return "⚪"
+
+# =========================
 # MARKET SECTORS (ALWAYS SHOWN)
 # =========================
 SECTOR_TICKERS = [
@@ -85,19 +95,19 @@ def get_sector_snapshot():
                 prev = hist["Close"].iloc[-2]
                 last = hist["Close"].iloc[-1]
                 pct = ((last - prev) / prev) * 100
-                pct_str = f"{pct:.2f}%"
             elif len(hist) == 1:
                 last = hist["Close"].iloc[-1]
-                pct_str = "0.00%"
+                pct = 0.0
             else:
-                last = "N/A"
-                pct_str = "N/A"
+                last = None
+                pct = 0.0
 
             rows.append({
                 "ticker": ticker,
                 "name": name,
-                "price": round(last, 2) if isinstance(last, float) else last,
-                "pct": pct_str
+                "price": f"{last:.2f}" if isinstance(last, float) else "N/A",
+                "pct": f"{pct:.2f}%",
+                "icon": direction_icon(pct)
             })
 
         except Exception:
@@ -105,13 +115,14 @@ def get_sector_snapshot():
                 "ticker": ticker,
                 "name": ticker,
                 "price": "N/A",
-                "pct": "N/A"
+                "pct": "N/A",
+                "icon": "⚪"
             })
 
     return rows
 
 # =========================
-# Emoji strength
+# Emoji strength for movers
 # =========================
 def strength_emoji(pct):
     pct = abs(pct)
@@ -156,11 +167,11 @@ def main():
     sectors = get_sector_snapshot()
 
     message = f"📊 *US Market Snapshot* ({state})\n"
-    message += "_All Sectors_\n\n"
+    message += "_Yahoo Finance · FREE_\n\n"
 
     message += "*📈 Market Sectors*\n"
     for s in sectors:
-        message += f"`{s['ticker']}` {s['name']} — ${s['price']} ({s['pct']})\n"
+        message += f"`{s['ticker']}` {s['name']} — ${s['price']} ({s['pct']}) {s['icon']}\n"
 
     if state == "CLOSED":
         send_telegram_message(message)
