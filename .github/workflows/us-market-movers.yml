@@ -1,9 +1,16 @@
-name: US Market Pre-Market Movers (Polygon)
+name: US Pre-Market Movers (Yahoo Finance)
 
 on:
   schedule:
-    # 22:30 SGT = 14:30 UTC, weekdays
-    - cron: '30 14 * * 1-5'
+    # 7:00 PM SGT = 11:00 UTC
+    - cron: '0 11 * * 1-5'
+
+    # 9:40 PM SGT = 13:40 UTC
+    - cron: '40 13 * * 1-5'
+
+    # 10:40 PM SGT = 14:40 UTC
+    - cron: '40 14 * * 1-5'
+
   workflow_dispatch:
 
 jobs:
@@ -21,12 +28,11 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install requests pytz
+          pip install yfinance pandas pytz requests
 
-      - name: Run Polygon pre-market movers
+      - name: Run Yahoo pre-market movers
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
         run: |
-          python scripts/us_market_movers_polygon.py
+          python scripts/us_market_movers_yahoo.py
