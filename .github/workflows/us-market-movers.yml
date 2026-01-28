@@ -1,9 +1,9 @@
-name: US Market Top Movers (Polygon)
+name: US Market Pre-Market Movers (Polygon)
 
 on:
   schedule:
-    # 18:00 SGT = 10:00 UTC (weekdays)
-    - cron: '0 10 * * 1-5'
+    # 20:00 SGT = 12:00 UTC, weekdays
+    - cron: '0 12 * * 1-5'
   workflow_dispatch:
 
 jobs:
@@ -23,7 +23,7 @@ jobs:
         run: |
           pip install requests pytz
 
-      - name: Run Polygon movers script
+      - name: Run Polygon pre-market movers
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
