@@ -45,35 +45,37 @@ def main():
         send_telegram_message("⏳ US market is currently closed.")
         return
 
-    headers = {
-        "Authorization": f"Bearer {POLYGON_API_KEY}"
-    }
+    gainers_url = (
+        "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/gainers"
+        f"?apiKey={POLYGON_API_KEY}"
+    )
+    losers_url = (
+        "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/losers"
+        f"?apiKey={POLYGON_API_KEY}"
+    )
 
-    gainers_url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/gainers"
-    losers_url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/losers"
+    gainers_resp = requests.get(gainers_url, timeout=15).json()
+    losers_resp = requests.get(losers_url, timeout=15).json()
 
-    gainers = requests.get(gainers_url, headers=headers, timeout=15).json()
-    losers = requests.get(losers_url, headers=headers, timeout=15).json()
-
-    if "tickers" not in gainers or "tickers" not in losers:
-        send_telegram_message("⚠️ Polygon API returned no data.")
+    if "tickers" not in gainers_resp or "tickers" not in losers_resp:
+        send_telegram_message("⚠️ Polygon API returned no data (free-tier delay or limit).")
         return
 
     message = "📊 *US Market Top Movers (Pre-Market / Open)*\n"
-    message += "_Polygon.io (15-min delayed)_\n\n"
+    message += "_Polygon.io · ~15 min delayed_\n\n"
 
     message += "*🚀 Top Gainers*\n"
-    for t in gainers["tickers"][:6]:
+    for t in gainers_resp["tickers"][:6]:
         symbol = t["ticker"]
-        pct = round(t["todaysChangePerc"], 2)
-        price = round(t["lastTrade"]["p"], 2)
+        pct = round(t.get("todaysChangePerc", 0), 2)
+        price = round(t.get("lastTrade", {}).get("p", 0), 2)
         message += f"`{symbol}`  {pct}% (${price})\n"
 
     message += "\n*🔻 Top Losers*\n"
-    for t in losers["tickers"][:6]:
+    for t in losers_resp["tickers"][:6]:
         symbol = t["ticker"]
-        pct = round(t["todaysChangePerc"], 2)
-        price = round(t["lastTrade"]["p"], 2)
+        pct = round(t.get("todaysChangePerc", 0), 2)
+        price = round(t.get("lastTrade", {}).get("p", 0), 2)
         message += f"`{symbol}`  {pct}% (${price})\n"
 
     send_telegram_message(message)
