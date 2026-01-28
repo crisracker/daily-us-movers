@@ -1,9 +1,18 @@
 import os
+import json
 import yfinance as yf
 import pandas as pd
 import requests
 import pytz
 from datetime import datetime
+
+# =========================
+# CONFIG
+# =========================
+PREMARKET_THRESHOLD = 1.0   # %
+MARKET_THRESHOLD = 2.0      # %
+VOLUME_MULTIPLIER = 1.5     # volume spike
+STATE_FILE = "alerted.json"
 
 # =========================
 # Load Telegram secrets
@@ -27,88 +36,109 @@ def send_telegram_message(text):
     requests.post(url, json=payload, timeout=10)
 
 # =========================
-# Market session check
+# Market session helpers
 # =========================
-def is_us_premarket():
+def market_state():
     us_tz = pytz.timezone("US/Eastern")
     now = datetime.now(us_tz)
 
-    pre_market_open = now.replace(hour=4, minute=0, second=0, microsecond=0)
-    market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
+    pre = now.replace(hour=4, minute=0, second=0, microsecond=0)
+    open_ = now.replace(hour=9, minute=30, second=0, microsecond=0)
+    close = now.replace(hour=16, minute=0, second=0, microsecond=0)
 
-    return pre_market_open <= now < market_open
+    if pre <= now < open_:
+        return "PREMARKET"
+    if open_ <= now <= close:
+        return "MARKET"
+    return "CLOSED"
 
 # =========================
-# Ticker groups
+# Load / save alerted state
 # =========================
+def load_alerted():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE, "r") as f:
+            return set(json.load(f))
+    return set()
 
-# Watching stocks
+def save_alerted(alerted):
+    with open(STATE_FILE, "w") as f:
+        json.dump(list(alerted), f)
+
+# =========================
+# Tickers
+# =========================
 WATCHLIST = ["MA", "V", "WM", "PL", "UNG"]
-
-# Crypto-related stocks
 CRYPTO_STOCKS = ["BMNR", "NU", "SUIG", "RIOT"]
 
-# Broad liquid universe (REPLACED AS REQUESTED)
 BASE_TICKERS = [
-    # Mega-cap tech
     "AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","TSLA",
     "AMD","NFLX","AVGO","INTC","QCOM","MU","TXN","AMAT","LRCX","KLAC",
-
-    # Financials
     "JPM","BAC","WFC","GS","MS","C","SCHW","BLK","AXP","USB","PNC",
-
-    # Energy
     "XOM","CVX","COP","SLB","OXY","MPC","VLO","PSX",
-
-    # Healthcare
     "JNJ","PFE","MRK","LLY","UNH","ABBV","TMO","ABT","DHR","MDT",
-
-    # Consumer discretionary
-    "AMZN","TSLA","HD","LOW","NKE","MCD","SBUX","BKNG","TJX",
-
-    # Consumer staples
+    "HD","LOW","NKE","MCD","SBUX","BKNG","TJX",
     "WMT","COST","PG","KO","PEP","PM","MO","CL",
-
-    # Industrials
     "BA","CAT","GE","RTX","DE","UPS","FDX","MMM","HON","ETN",
-
-    # Communication
-    "META","NFLX","DIS","CMCSA","VZ","T","TMUS",
-
-    # Materials
+    "DIS","CMCSA","VZ","T","TMUS",
     "LIN","APD","ECL","SHW","FCX","NEM"
 ]
 
-# Merge & deduplicate all tickers
 ALL_TICKERS = sorted(set(BASE_TICKERS + WATCHLIST + CRYPTO_STOCKS))
 
 # =========================
-# Main logic
+# Emoji strength
+# =========================
+def strength_emoji(pct):
+    pct = abs(pct)
+    if pct >= 5:
+        return "🚨"
+    if pct >= 3:
+        return "🔥"
+    return ""
+
+# =========================
+# Main
 # =========================
 def main():
-    if not is_us_premarket():
-        send_telegram_message("⏳ US pre-market is not open.")
+    state = market_state()
+    if state == "CLOSED":
+        send_telegram_message("⏳ US market is closed.")
         return
 
+    threshold = PREMARKET_THRESHOLD if state == "PREMARKET" else MARKET_THRESHOLD
+    alerted = load_alerted()
     movers = []
 
     for ticker in ALL_TICKERS:
         try:
-            stock = yf.Ticker(ticker)
-            info = stock.fast_info
+            t = yf.Ticker(ticker)
+            info = t.fast_info
 
             prev_close = info.get("previous_close")
-            last_price = info.get("last_price")
+            price = info.get("last_price")
+            volume = info.get("last_volume")
+            avg_volume = info.get("ten_day_average_volume")
 
-            if prev_close is None or last_price is None:
+            if not all([prev_close, price, volume, avg_volume]):
                 continue
 
-            pct_change = ((last_price - prev_close) / prev_close) * 100
+            pct = ((price - prev_close) / prev_close) * 100
+
+            if abs(pct) < threshold:
+                continue
+
+            if volume < avg_volume * VOLUME_MULTIPLIER:
+                continue
+
+            if ticker in alerted:
+                continue
 
             movers.append({
                 "ticker": ticker,
-                "price": round(last_price, 2),
-                "pct_change": round(pct_change, 2)
+                "pct": round(pct, 2),
+                "price": round(price, 2),
+                "emoji": strength_emoji(pct)
             })
 
         except Exception:
@@ -116,53 +146,30 @@ def main():
 
     if not movers:
         send_telegram_message(
-            "ℹ️ *US Pre-Market Movers (Yahoo)*\n\n"
-            "Pre-market is open, but no significant movement yet."
+            f"ℹ️ *US {state} Movers*\n\n"
+            f"No stocks moving more than ±{threshold}% with volume yet."
         )
         return
 
     df = pd.DataFrame(movers)
+    gainers = df.sort_values("pct", ascending=False).head(6)
+    losers = df.sort_values("pct").head(6)
 
-    # =========================
-    # Top movers
-    # =========================
-    top_gainers = df.sort_values("pct_change", ascending=False).head(6)
-    top_losers = df.sort_values("pct_change").head(6)
-
-    # =========================
-    # Watchlist & crypto views
-    # =========================
-    watch_df = df[df["ticker"].isin(WATCHLIST)]
-    crypto_df = df[df["ticker"].isin(CRYPTO_STOCKS)]
-
-    # =========================
-    # Build Telegram message
-    # =========================
-    message = "📊 *US Pre-Market Movers*\n"
+    message = f"📊 *US {state} Movers*\n"
     message += "_Yahoo Finance · FREE_\n\n"
 
     message += "*🚀 Top Gainers*\n"
-    for _, r in top_gainers.iterrows():
-        message += f"`{r.ticker}`  {r.pct_change}% (${r.price})\n"
+    for _, r in gainers.iterrows():
+        message += f"{r.emoji} `{r.ticker}` {r.pct}% (${r.price})\n"
+        alerted.add(r.ticker)
 
     message += "\n*🔻 Top Losers*\n"
-    for _, r in top_losers.iterrows():
-        message += f"`{r.ticker}`  {r.pct_change}% (${r.price})\n"
-
-    if not watch_df.empty:
-        message += "\n*👀 Watching Stocks*\n"
-        for _, r in watch_df.iterrows():
-            message += f"`{r.ticker}`  {r.pct_change}% (${r.price})\n"
-
-    if not crypto_df.empty:
-        message += "\n*₿ Crypto-Related Stocks*\n"
-        for _, r in crypto_df.iterrows():
-            message += f"`{r.ticker}`  {r.pct_change}% (${r.price})\n"
+    for _, r in losers.iterrows():
+        message += f"{r.emoji} `{r.ticker}` {r.pct}% (${r.price})\n"
+        alerted.add(r.ticker)
 
     send_telegram_message(message)
+    save_alerted(alerted)
 
-# =========================
-# Entry point
-# =========================
 if __name__ == "__main__":
     main()
