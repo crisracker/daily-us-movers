@@ -1,17 +1,21 @@
 import os
-import yfinance as yf
-import pandas as pd
 import requests
 import pytz
 from datetime import datetime
 
-# Load secrets from GitHub Actions
+# =========================
+# Load secrets
+# =========================
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
+POLYGON_API_KEY = os.getenv("POLYGON_API_KEY")
 
-if not TELEGRAM_BOT_TOKEN or not TELEGRAM_CHAT_ID:
-    raise RuntimeError("Missing TELEGRAM_BOT_TOKEN or TELEGRAM_CHAT_ID")
+if not all([TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, POLYGON_API_KEY]):
+    raise RuntimeError("Missing required environment variables")
 
+# =========================
+# Telegram
+# =========================
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
     payload = {
@@ -21,6 +25,9 @@ def send_telegram_message(text):
     }
     requests.post(url, json=payload, timeout=10)
 
+# =========================
+# Market session check
+# =========================
 def is_us_market_open_or_premarket():
     us_tz = pytz.timezone("US/Eastern")
     now = datetime.now(us_tz)
@@ -30,53 +37,49 @@ def is_us_market_open_or_premarket():
 
     return pre_market_open <= now <= market_close
 
+# =========================
+# Main logic
+# =========================
 def main():
     if not is_us_market_open_or_premarket():
         send_telegram_message("⏳ US market is currently closed.")
         return
 
-    # Pull S&P 500 components
-    tickers = yf.Tickers("^GSPC").symbols[:200]  # limit to reduce rate limits
-    movers = []
+    headers = {
+        "Authorization": f"Bearer {POLYGON_API_KEY}"
+    }
 
-    for ticker in tickers:
-        try:
-            stock = yf.Ticker(ticker)
-            info = stock.fast_info
+    gainers_url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/gainers"
+    losers_url = "https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/losers"
 
-            prev_close = info.get("previous_close")
-            last_price = info.get("last_price")
+    gainers = requests.get(gainers_url, headers=headers, timeout=15).json()
+    losers = requests.get(losers_url, headers=headers, timeout=15).json()
 
-            if prev_close and last_price:
-                pct_change = ((last_price - prev_close) / prev_close) * 100
-                movers.append({
-                    "ticker": ticker,
-                    "price": round(last_price, 2),
-                    "pct_change": round(pct_change, 2)
-                })
-        except Exception:
-            continue
-
-    df = pd.DataFrame(movers)
-
-    if df.empty:
-        send_telegram_message("⚠️ No market data available.")
+    if "tickers" not in gainers or "tickers" not in losers:
+        send_telegram_message("⚠️ Polygon API returned no data.")
         return
 
-    top_gainers = df.sort_values("pct_change", ascending=False).head(6)
-    top_losers = df.sort_values("pct_change").head(6)
-
-    message = "📊 *CT US Market Movers (Pre-Market / Open)*\n\n"
+    message = "📊 *US Market Top Movers (Pre-Market / Open)*\n"
+    message += "_Polygon.io (15-min delayed)_\n\n"
 
     message += "*🚀 Top Gainers*\n"
-    for _, r in top_gainers.iterrows():
-        message += f"`{r.ticker}`  {r.pct_change}% (${r.price})\n"
+    for t in gainers["tickers"][:6]:
+        symbol = t["ticker"]
+        pct = round(t["todaysChangePerc"], 2)
+        price = round(t["lastTrade"]["p"], 2)
+        message += f"`{symbol}`  {pct}% (${price})\n"
 
     message += "\n*🔻 Top Losers*\n"
-    for _, r in top_losers.iterrows():
-        message += f"`{r.ticker}`  {r.pct_change}% (${r.price})\n"
+    for t in losers["tickers"][:6]:
+        symbol = t["ticker"]
+        pct = round(t["todaysChangePerc"], 2)
+        price = round(t["lastTrade"]["p"], 2)
+        message += f"`{symbol}`  {pct}% (${price})\n"
 
     send_telegram_message(message)
 
+# =========================
+# Entry point
+# =========================
 if __name__ == "__main__":
     main()
