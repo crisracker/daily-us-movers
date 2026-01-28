@@ -14,7 +14,7 @@ if not all([TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID, POLYGON_API_KEY]):
     raise RuntimeError("Missing required environment variables")
 
 # =========================
-# Telegram
+# Telegram sender
 # =========================
 def send_telegram_message(text):
     url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
@@ -33,16 +33,16 @@ def is_us_market_open_or_premarket():
     now = datetime.now(us_tz)
 
     pre_market_open = now.replace(hour=4, minute=0, second=0, microsecond=0)
-    market_close = now.replace(hour=16, minute=0, second=0, microsecond=0)
+    market_open = now.replace(hour=9, minute=30, second=0, microsecond=0)
 
-    return pre_market_open <= now <= market_close
+    return pre_market_open <= now < market_open
 
 # =========================
 # Main logic
 # =========================
 def main():
     if not is_us_market_open_or_premarket():
-        send_telegram_message("⏳ US market is currently closed.")
+        send_telegram_message("⏳ US pre-market is not open.")
         return
 
     gainers_url = (
@@ -57,23 +57,37 @@ def main():
     gainers_resp = requests.get(gainers_url, timeout=15).json()
     losers_resp = requests.get(losers_url, timeout=15).json()
 
-    if "tickers" not in gainers_resp or "tickers" not in losers_resp:
-        send_telegram_message("⚠️ Polygon API returned no data (free-tier delay or limit).")
+    gainers_list = gainers_resp.get("tickers", [])
+    losers_list = losers_resp.get("tickers", [])
+
+    # =========================
+    # Handle empty pre-market (NORMAL on free tier)
+    # =========================
+    if not gainers_list and not losers_list:
+        send_telegram_message(
+            "ℹ️ *US Pre-Market Movers*\n"
+            "_Polygon.io · 🆓 FREE tier · ~15 min delayed_\n\n"
+            "Pre-market is open, but no significant movers yet.\n"
+            "This is normal before ~08:00 ET."
+        )
         return
 
-    message = "📊 *US Market Top Movers (Pre-Market / Open)*\n"
-    message += "_Polygon.io · ~15 min delayed_\n\n"
+    # =========================
+    # Build Telegram message
+    # =========================
+    message = "📊 *US Pre-Market Movers*\n"
+    message += "_Polygon.io · 🆓 FREE tier · ~15 min delayed_\n\n"
 
     message += "*🚀 Top Gainers*\n"
-    for t in gainers_resp["tickers"][:6]:
-        symbol = t["ticker"]
+    for t in gainers_list[:6]:
+        symbol = t.get("ticker", "N/A")
         pct = round(t.get("todaysChangePerc", 0), 2)
         price = round(t.get("lastTrade", {}).get("p", 0), 2)
         message += f"`{symbol}`  {pct}% (${price})\n"
 
     message += "\n*🔻 Top Losers*\n"
-    for t in losers_resp["tickers"][:6]:
-        symbol = t["ticker"]
+    for t in losers_list[:6]:
+        symbol = t.get("ticker", "N/A")
         pct = round(t.get("todaysChangePerc", 0), 2)
         price = round(t.get("lastTrade", {}).get("p", 0), 2)
         message += f"`{symbol}`  {pct}% (${price})\n"
