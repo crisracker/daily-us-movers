@@ -9,8 +9,8 @@ from datetime import datetime
 # =========================
 # CONFIG
 # =========================
-PREMARKET_THRESHOLD = 1.0   # %
-MARKET_THRESHOLD = 2.0      # %
+PREMARKET_THRESHOLD = 1.0
+MARKET_THRESHOLD = 2.0
 VOLUME_MULTIPLIER = 1.5
 STATE_FILE = "alerted.json"
 
@@ -66,37 +66,48 @@ def save_alerted(alerted):
         json.dump(list(alerted), f)
 
 # =========================
-# ETF SNAPSHOT (ALWAYS SHOWN)
+# MARKET SECTORS (ALWAYS SHOWN)
 # =========================
-ETF_TICKERS = [
+SECTOR_TICKERS = [
     "CQQQ","XLB","XLC","XLE","XLF","XLG","XLI",
     "XLK","XLP","XLU","XLV","XLY","SPY"
 ]
 
-def get_etf_snapshot():
+def get_sector_snapshot():
     rows = []
-    for ticker in ETF_TICKERS:
+    for ticker in SECTOR_TICKERS:
         try:
             t = yf.Ticker(ticker)
-            info = t.fast_info
+            hist = t.history(period="2d")
             name = t.info.get("shortName", ticker)
 
-            prev = info.get("previous_close")
-            price = info.get("last_price")
-
-            if not prev or not price:
-                continue
-
-            pct = ((price - prev) / prev) * 100
+            if len(hist) >= 2:
+                prev = hist["Close"].iloc[-2]
+                last = hist["Close"].iloc[-1]
+                pct = ((last - prev) / prev) * 100
+                pct_str = f"{pct:.2f}%"
+            elif len(hist) == 1:
+                last = hist["Close"].iloc[-1]
+                pct_str = "0.00%"
+            else:
+                last = "N/A"
+                pct_str = "N/A"
 
             rows.append({
                 "ticker": ticker,
                 "name": name,
-                "price": round(price, 2),
-                "pct": round(pct, 2)
+                "price": round(last, 2) if isinstance(last, float) else last,
+                "pct": pct_str
             })
+
         except Exception:
-            continue
+            rows.append({
+                "ticker": ticker,
+                "name": ticker,
+                "price": "N/A",
+                "pct": "N/A"
+            })
+
     return rows
 
 # =========================
@@ -140,20 +151,17 @@ def main():
     alerted = load_alerted()
 
     # -------------------------
-    # ETF Snapshot (always)
+    # Market Sectors (ALWAYS)
     # -------------------------
-    etfs = get_etf_snapshot()
+    sectors = get_sector_snapshot()
+
     message = f"📊 *US Market Snapshot* ({state})\n"
-    message += "_Yahoo Finance · FREE_\n\n"
+    message += "_All Sectors_\n\n"
 
-    message += "*📈 Market ETFs*\n"
-    for e in etfs:
-        emoji = strength_emoji(e["pct"])
-        message += f"{emoji} `{e['ticker']}` {e['name']} — ${e['price']} ({e['pct']}%)\n"
+    message += "*📈 Market Sectors*\n"
+    for s in sectors:
+        message += f"`{s['ticker']}` {s['name']} — ${s['price']} ({s['pct']})\n"
 
-    # -------------------------
-    # Skip movers if market closed
-    # -------------------------
     if state == "CLOSED":
         send_telegram_message(message)
         return
@@ -177,10 +185,8 @@ def main():
 
             if abs(pct) < threshold:
                 continue
-
             if vol < avg_vol * VOLUME_MULTIPLIER:
                 continue
-
             if ticker in alerted:
                 continue
 
