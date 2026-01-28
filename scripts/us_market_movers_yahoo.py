@@ -11,7 +11,7 @@ from datetime import datetime
 # =========================
 PREMARKET_THRESHOLD = 1.0   # %
 MARKET_THRESHOLD = 2.0      # %
-VOLUME_MULTIPLIER = 1.5     # volume spike
+VOLUME_MULTIPLIER = 1.5
 STATE_FILE = "alerted.json"
 
 # =========================
@@ -36,7 +36,7 @@ def send_telegram_message(text):
     requests.post(url, json=payload, timeout=10)
 
 # =========================
-# Market session helpers
+# Market state
 # =========================
 def market_state():
     us_tz = pytz.timezone("US/Eastern")
@@ -47,13 +47,13 @@ def market_state():
     close = now.replace(hour=16, minute=0, second=0, microsecond=0)
 
     if pre <= now < open_:
-        return "PREMARKET"
+        return "PRE-MARKET"
     if open_ <= now <= close:
         return "MARKET"
     return "CLOSED"
 
 # =========================
-# Load / save alerted state
+# Alert state persistence
 # =========================
 def load_alerted():
     if os.path.exists(STATE_FILE):
@@ -66,7 +66,52 @@ def save_alerted(alerted):
         json.dump(list(alerted), f)
 
 # =========================
-# Tickers
+# ETF SNAPSHOT (ALWAYS SHOWN)
+# =========================
+ETF_TICKERS = [
+    "CQQQ","XLB","XLC","XLE","XLF","XLG","XLI",
+    "XLK","XLP","XLU","XLV","XLY","SPY"
+]
+
+def get_etf_snapshot():
+    rows = []
+    for ticker in ETF_TICKERS:
+        try:
+            t = yf.Ticker(ticker)
+            info = t.fast_info
+            name = t.info.get("shortName", ticker)
+
+            prev = info.get("previous_close")
+            price = info.get("last_price")
+
+            if not prev or not price:
+                continue
+
+            pct = ((price - prev) / prev) * 100
+
+            rows.append({
+                "ticker": ticker,
+                "name": name,
+                "price": round(price, 2),
+                "pct": round(pct, 2)
+            })
+        except Exception:
+            continue
+    return rows
+
+# =========================
+# Emoji strength
+# =========================
+def strength_emoji(pct):
+    pct = abs(pct)
+    if pct >= 5:
+        return "🚨"
+    if pct >= 3:
+        return "🔥"
+    return ""
+
+# =========================
+# Stock universe
 # =========================
 WATCHLIST = ["MA", "V", "WM", "PL", "UNG"]
 CRYPTO_STOCKS = ["BMNR", "NU", "SUIG", "RIOT"]
@@ -87,27 +132,32 @@ BASE_TICKERS = [
 ALL_TICKERS = sorted(set(BASE_TICKERS + WATCHLIST + CRYPTO_STOCKS))
 
 # =========================
-# Emoji strength
-# =========================
-def strength_emoji(pct):
-    pct = abs(pct)
-    if pct >= 5:
-        return "🚨"
-    if pct >= 3:
-        return "🔥"
-    return ""
-
-# =========================
 # Main
 # =========================
 def main():
     state = market_state()
+    threshold = PREMARKET_THRESHOLD if state == "PRE-MARKET" else MARKET_THRESHOLD
+    alerted = load_alerted()
+
+    # -------------------------
+    # ETF Snapshot (always)
+    # -------------------------
+    etfs = get_etf_snapshot()
+    message = f"📊 *US Market Snapshot* ({state})\n"
+    message += "_Yahoo Finance · FREE_\n\n"
+
+    message += "*📈 Market ETFs*\n"
+    for e in etfs:
+        emoji = strength_emoji(e["pct"])
+        message += f"{emoji} `{e['ticker']}` {e['name']} — ${e['price']} ({e['pct']}%)\n"
+
+    # -------------------------
+    # Skip movers if market closed
+    # -------------------------
     if state == "CLOSED":
-        send_telegram_message("⏳ US market is closed.")
+        send_telegram_message(message)
         return
 
-    threshold = PREMARKET_THRESHOLD if state == "PREMARKET" else MARKET_THRESHOLD
-    alerted = load_alerted()
     movers = []
 
     for ticker in ALL_TICKERS:
@@ -115,20 +165,20 @@ def main():
             t = yf.Ticker(ticker)
             info = t.fast_info
 
-            prev_close = info.get("previous_close")
+            prev = info.get("previous_close")
             price = info.get("last_price")
-            volume = info.get("last_volume")
-            avg_volume = info.get("ten_day_average_volume")
+            vol = info.get("last_volume")
+            avg_vol = info.get("ten_day_average_volume")
 
-            if not all([prev_close, price, volume, avg_volume]):
+            if not all([prev, price, vol, avg_vol]):
                 continue
 
-            pct = ((price - prev_close) / prev_close) * 100
+            pct = ((price - prev) / prev) * 100
 
             if abs(pct) < threshold:
                 continue
 
-            if volume < avg_volume * VOLUME_MULTIPLIER:
+            if vol < avg_vol * VOLUME_MULTIPLIER:
                 continue
 
             if ticker in alerted:
@@ -144,29 +194,22 @@ def main():
         except Exception:
             continue
 
-    if not movers:
-        send_telegram_message(
-            f"ℹ️ *US {state} Movers*\n\n"
-            f"No stocks moving more than ±{threshold}% with volume yet."
-        )
-        return
+    if movers:
+        df = pd.DataFrame(movers)
+        gainers = df.sort_values("pct", ascending=False).head(6)
+        losers = df.sort_values("pct").head(6)
 
-    df = pd.DataFrame(movers)
-    gainers = df.sort_values("pct", ascending=False).head(6)
-    losers = df.sort_values("pct").head(6)
+        message += "\n*🚀 Top Gainers*\n"
+        for _, r in gainers.iterrows():
+            message += f"{r.emoji} `{r.ticker}` {r.pct}% (${r.price})\n"
+            alerted.add(r.ticker)
 
-    message = f"📊 *US {state} Movers*\n"
-    message += "_Yahoo Finance · FREE_\n\n"
-
-    message += "*🚀 Top Gainers*\n"
-    for _, r in gainers.iterrows():
-        message += f"{r.emoji} `{r.ticker}` {r.pct}% (${r.price})\n"
-        alerted.add(r.ticker)
-
-    message += "\n*🔻 Top Losers*\n"
-    for _, r in losers.iterrows():
-        message += f"{r.emoji} `{r.ticker}` {r.pct}% (${r.price})\n"
-        alerted.add(r.ticker)
+        message += "\n*🔻 Top Losers*\n"
+        for _, r in losers.iterrows():
+            message += f"{r.emoji} `{r.ticker}` {r.pct}% (${r.price})\n"
+            alerted.add(r.ticker)
+    else:
+        message += f"\nℹ️ No stocks moving more than ±{threshold}% with volume yet."
 
     send_telegram_message(message)
     save_alerted(alerted)
