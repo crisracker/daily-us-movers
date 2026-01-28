@@ -2,7 +2,7 @@ name: US Market Top Movers to Telegram
 
 on:
   schedule:
-    # 18:00 SGT = 10:00 UTC
+    # 18:00 SGT = 10:00 UTC, weekdays only
     - cron: '0 10 * * 1-5'
   workflow_dispatch:
 
@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
       - name: Set up Python
@@ -23,7 +23,7 @@ jobs:
         run: |
           pip install yfinance pandas requests pytz
 
-      - name: Run market movers script
+      - name: Run US market movers script
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
