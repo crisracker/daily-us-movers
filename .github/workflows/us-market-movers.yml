@@ -1,4 +1,4 @@
-name: US Pre-Market Movers (Yahoo Finance)
+name: US Market Movers (Yahoo Finance)
 
 on:
   schedule:
@@ -18,9 +18,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repo
+      - name: Checkout repository
         uses: actions/checkout@v4
 
+      # -------------------------
+      # Restore previous alert state (if exists)
+      # -------------------------
+      - name: Restore alerted state
+        uses: actions/download-artifact@v4
+        with:
+          name: alert-state
+          path: .
+        continue-on-error: true
+
+      # -------------------------
+      # Python setup
+      # -------------------------
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
@@ -30,9 +43,21 @@ jobs:
         run: |
           pip install yfinance pandas pytz requests
 
-      - name: Run Yahoo pre-market movers
+      # -------------------------
+      # Run script
+      # -------------------------
+      - name: Run Yahoo market movers
         env:
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
         run: |
           python scripts/us_market_movers_yahoo.py
+
+      # -------------------------
+      # Save alert state for next run
+      # -------------------------
+      - name: Save alerted state
+        uses: actions/upload-artifact@v4
+        with:
+          name: alert-state
+          path: alerted.json
