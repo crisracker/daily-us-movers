@@ -167,7 +167,7 @@ def main():
     sectors = get_sector_snapshot()
 
     message = f"📊 *US Market Snapshot* ({state})\n"
-    message += "_Yahoo Finance · FREE_\n\n"
+    message += "_Market Sectors_\n\n"
 
     message += "*📈 Market Sectors*\n"
     for s in sectors:
