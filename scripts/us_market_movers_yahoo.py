@@ -79,8 +79,8 @@ def direction_icon(pct):
 # MARKET SECTORS (ALWAYS SHOWN)
 # =========================
 SECTOR_TICKERS = [
-    "CQQQ","XLB","XLC","XLE","XLF","XLG","XLI",
-    "XLK","XLP","XLU","XLV","XLY","SPY"
+    "CQQQ","VWRA","SPY","CSPX","XLB","XLC","XLE","XLF","XLG","XLI",
+    "XLK","XLP","XLU","XLV","XLY"
 ]
 
 def get_sector_snapshot():
@@ -135,11 +135,11 @@ def strength_emoji(pct):
 # =========================
 # Stock universe
 # =========================
-WATCHLIST = ["MA", "V", "WM", "PL", "UNG"]
-CRYPTO_STOCKS = ["BMNR", "NU", "SUIG", "RIOT"]
+WATCHLIST = ["MA", "V", "WM", "PL", "UNG", "CHA", "FTNT", "UNH"]
+CRYPTO_STOCKS = ["IBIT", "BMNR", "NU", "SUIG", "RIOT"]
 
 BASE_TICKERS = [
-    "AAPL","MSFT","NVDA","AMZN","META","GOOGL","GOOG","TSLA",
+    "AAPL","MSFT","NVDA","AMZN","META","GOOGL","TSLA", "PLTR",
     "AMD","NFLX","AVGO","INTC","QCOM","MU","TXN","AMAT","LRCX","KLAC",
     "JPM","BAC","WFC","GS","MS","C","SCHW","BLK","AXP","USB","PNC",
     "XOM","CVX","COP","SLB","OXY","MPC","VLO","PSX",
@@ -147,8 +147,9 @@ BASE_TICKERS = [
     "HD","LOW","NKE","MCD","SBUX","BKNG","TJX",
     "WMT","COST","PG","KO","PEP","PM","MO","CL",
     "BA","CAT","GE","RTX","DE","UPS","FDX","MMM","HON","ETN",
-    "DIS","CMCSA","VZ","T","TMUS",
-    "LIN","APD","ECL","SHW","FCX","NEM"
+    "DIS","CMCSA","VZ","T","TMUS", "SOFI",
+    "LIN","APD","ECL","SHW","FCX","NEM",
+    "BXSL", "PBDC"
 ]
 
 ALL_TICKERS = sorted(set(BASE_TICKERS + WATCHLIST + CRYPTO_STOCKS))
