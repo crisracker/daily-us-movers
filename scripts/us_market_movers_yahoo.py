@@ -79,7 +79,7 @@ def direction_icon(pct):
 # MARKET SECTORS (ALWAYS SHOWN)
 # =========================
 SECTOR_TICKERS = [
-    "CQQQ","VWRA","SPY","CSPX","XLB","XLC","XLE","XLF","XLG","XLI",
+    "CQQQ","VT","VWRA","SPY","CSPX","XLB","XLC","XLE","XLF","XLG","XLI",
     "XLK","XLP","XLU","XLV","XLY"
 ]
 
